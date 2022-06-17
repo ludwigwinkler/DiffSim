@@ -1,19 +1,25 @@
+import math
 import os
 import sys
 import warnings
 from pathlib import Path
 from typing import Optional
 
-import wandb
-import imageio, imageio_ffmpeg
+import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning
-import torchvision
+import wandb
 
 # from torchtyping import TensorType, patch_typeguard
 # from typeguard import typechecked
 # patch_typeguard()
+from DiffSim.src.diffeqs.DiffSim_DiffEqs_2D import LinearForceField, TimeDependentLinearForceField, CircleDiffEq, \
+	DoublePendulumDiffEq, DoublePendulum_SidewaysForceField
+from DiffSim.src.diffeqs.DiffSim_DiffEqs_DoublePendulum import ThreeBodyProblemDiffEq, \
+	ThreeBodyProblem_ContractingForceField
+from DiffSim.src.diffeqs.DiffSim_DiffEqs_NdHamiltonian import GMM, NdHamiltonianDiffEq, \
+	NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq, NdHamiltonianDiffEq_OriginDiffEq
 
 fontsize = 20
 params = {
@@ -47,7 +53,7 @@ for _ in range(len(cwd.parts)):
 sys.path.append(phd_path)
 from DiffSim.src.DiffSim_DataSets import DiffEq_TimeSeries_DataSet
 from DiffSim.src.DiffSim_Utils import str2bool
-from DiffSim.src.DiffSim_DiffEqs import *  # importing all the DiffEqs
+from DiffSim.src.diffeqs.DiffSim_DiffEqs import *  # importing all the DiffEqs
 
 
 file_path = os.path.dirname(os.path.abspath(__file__)) + "/MD_DataUtils.py"
@@ -105,7 +111,9 @@ class Circular_GaussianBlob_DataModule(LightningDataModule):
 		parser.add_argument("--batch_size", type=int, default=128)
 		parser.add_argument("--train_traj_repetition", type=int, default=10000)
 		parser.add_argument("--val_split", type=float, default=0.8)
-		parser.add_argument("--num_workers", type=int, default=4 * torch.cuda.device_count() if torch.cuda.is_available() else 0, )
+		parser.add_argument("--num_workers",
+		                    type=int,
+		                    default=4 * torch.cuda.device_count() if torch.cuda.is_available() else 0, )
 		parser.add_argument("--pretraining", type=str2bool, default=True)
 		
 		return parent_parser
@@ -128,19 +136,26 @@ class Circular_GaussianBlob_DataModule(LightningDataModule):
 		
 		self.radius = 6
 		
-		rads = (np.linspace(start=0, stop=self.hparams.data_timesteps, num=self.hparams.data_timesteps, ) * self.hparams.data_dt)
+		rads = (np.linspace(start=0,
+		                    stop=self.hparams.data_timesteps,
+		                    num=self.hparams.data_timesteps, ) * self.hparams.data_dt)
 		
 		x = self.hparams.data_radius * np.cos(rads)
 		y = self.hparams.data_radius * np.sin(rads)
 		T = self.hparams.data_timesteps
 		
 		mus = torch.from_numpy(np.vstack([x, y])).T.reshape(-1, 1, 2).float()
-		covar = (self.hparams.data_diffusion * Tensor([[1, 0], [0, 1]]).reshape(1, 1, 2, 2).repeat(T, 1, 1, 1).contiguous().float())  # [T, 1, 2, 2]
+		covar = (self.hparams.data_diffusion * Tensor([[1, 0], [0, 1]]).reshape(1, 1, 2, 2).repeat(T,
+		                                                                                           1,
+		                                                                                           1,
+		                                                                                           1).contiguous().float())  # [T, 1, 2, 2]
 		covar = self.covar_postprocessing(mus, covar)
 		
 		dist = torch.distributions.MultivariateNormal(mus, covariance_matrix=covar)
 		
-		probs = (dist.log_prob(points).exp().reshape(self.hparams.data_timesteps, self.hparams.data_res, self.hparams.data_res, ))
+		probs = (dist.log_prob(points).exp().reshape(self.hparams.data_timesteps,
+		                                             self.hparams.data_res,
+		                                             self.hparams.data_res, ))
 		data = probs
 		
 		if 0:
@@ -156,7 +171,8 @@ class Circular_GaussianBlob_DataModule(LightningDataModule):
 		time = torch.linspace(start=0, end=self.hparams.data_timesteps, steps=self.hparams.data_timesteps)
 		self.time = einops.repeat(time, "t -> d t", d=self.rawdata.shape[0])
 		
-		assert (self.time.shape[:2] == self.rawdata.shape[:2] == self.latent_data[0].shape[:2] == self.latent_data[1].shape[:2])
+		assert (self.time.shape[:2] == self.rawdata.shape[:2] == self.latent_data[0].shape[:2] == self.latent_data[
+			                                                                                          1].shape[:2])
 	
 	def covar_postprocessing(self, mu, covar):
 		"""
@@ -264,7 +280,10 @@ class Circular_GaussianBlob_DataModule(LightningDataModule):
 			batch_y_ = target
 			pred_ = pred
 		fig, axs = plt.subplots()
-		axs.imshow(torchvision.utils.make_grid(torch.cat([batch_y_, pred_], dim=0), nrow=t + 1, pad_value=-1).permute(1, 2, 0)[:, :, 0])
+		axs.imshow(torchvision.utils.make_grid(torch.cat([batch_y_, pred_], dim=0), nrow=t + 1, pad_value=-1).permute(1,
+		                                                                                                              2,
+		                                                                                                              0)[
+		           :, :, 0])
 		
 		axs.set_title(title)
 		if show:
@@ -367,7 +386,9 @@ class ForceField_Circular_GaussianBlob_DataModule(LightningDataModule):
 		
 		self.visualize_force_fields(diffeqs)
 		
-		t = (torch.linspace(start=0, end=self.hparams.data_timesteps, steps=self.hparams.data_timesteps, ) * self.hparams.data_dt)
+		t = (torch.linspace(start=0,
+		                    end=self.hparams.data_timesteps,
+		                    steps=self.hparams.data_timesteps, ) * self.hparams.data_dt)
 		
 		diffeqs.set_t0(t[:1].unsqueeze(0))
 		diffeq = NeuralODE(diffeqs, sensitivity="adjoint", solver="rk4")
@@ -379,11 +400,17 @@ class ForceField_Circular_GaussianBlob_DataModule(LightningDataModule):
 		x, y = traj[0].T  # Traj.shape=[1,T,2] -> x,y=[2,T]
 		
 		mus = torch.from_numpy(np.vstack([x, y])).T.float().reshape(-1, 2)
-		covar = (self.hparams.data_diffusion * Tensor([[1, 0], [0, 1]]).unsqueeze(0).repeat(T, 1, 1).float().contiguous())  # [T, 1, 2, 2]
+		covar = (self.hparams.data_diffusion * Tensor([[1, 0], [0, 1]]).unsqueeze(0).repeat(T,
+		                                                                                    1,
+		                                                                                    1).float().contiguous())  # [T, 1, 2, 2]
 		covar = self.covar_postprocessing(mus, covar)
 		
-		dist = torch.distributions.MultivariateNormal(mus.unsqueeze(1), covariance_matrix=covar.unsqueeze(1), validate_args=True)
-		probs = (dist.log_prob(points).exp().reshape(self.hparams.data_timesteps, self.hparams.data_res, self.hparams.data_res, ))
+		dist = torch.distributions.MultivariateNormal(mus.unsqueeze(1),
+		                                              covariance_matrix=covar.unsqueeze(1),
+		                                              validate_args=True)
+		probs = (dist.log_prob(points).exp().reshape(self.hparams.data_timesteps,
+		                                             self.hparams.data_res,
+		                                             self.hparams.data_res, ))
 		
 		min_ = probs.flatten(-2, -1).min(dim=-1)[0].unsqueeze(-1).unsqueeze(-1)
 		max_ = probs.flatten(-2, -1).max(dim=-1)[0].unsqueeze(-1).unsqueeze(-1)
@@ -405,12 +432,14 @@ class ForceField_Circular_GaussianBlob_DataModule(LightningDataModule):
 		Construct LightningDataModule specific covariance matrix
 		"""
 		
-		covar[..., 0, 0] += (self.hparams.data_diffusion * 0.75 * (mu[..., 0] / self.hparams.data_radius).clamp(min=-self.hparams.data_radius,
-		                                                                                                        max=self.hparams.data_radius))
-		covar[..., 1, 1] += (self.hparams.data_diffusion * 0.75 * (mu[..., 1] / self.hparams.data_radius).clamp(min=-self.hparams.data_radius,
-		                                                                                                        max=self.hparams.data_radius))
+		covar[..., 0, 0] += (self.hparams.data_diffusion * 0.75 * (
+		 mu[..., 0] / self.hparams.data_radius).clamp(min=-self.hparams.data_radius, max=self.hparams.data_radius))
+		covar[..., 1, 1] += (self.hparams.data_diffusion * 0.75 * (
+		 mu[..., 1] / self.hparams.data_radius).clamp(min=-self.hparams.data_radius, max=self.hparams.data_radius))
 		
-		covar = torch.eye(2) * torch.clamp(covar, min=0.25 * self.hparams.data_diffusion, max=1.75 * self.hparams.data_diffusion, )
+		covar = torch.eye(2) * torch.clamp(covar,
+		                                   min=0.25 * self.hparams.data_diffusion,
+		                                   max=1.75 * self.hparams.data_diffusion, )
 		
 		assert covar[..., 0, 0].min() > 0.0, f"{covar[..., 0, 0].min()=}"
 		assert covar[..., 1, 1].min() > 0.0, f"{covar[..., 1, 1].min()=}"
@@ -528,7 +557,15 @@ class ForceField_Circular_GaussianBlob_DataModule(LightningDataModule):
 		
 		return fig
 	
-	def generate_gif(self, pred, target, t, pred_latent, latent, title="", file_str="../experiments/giffygiffy.gif", show=False, ):
+	def generate_gif(self,
+	                 pred,
+	                 target,
+	                 t,
+	                 pred_latent,
+	                 latent,
+	                 title="",
+	                 file_str="../experiments/giffygiffy.gif",
+	                 show=False, ):
 		
 		assert pred.dim() == target.dim() == 5
 		
@@ -669,7 +706,9 @@ class DoublePendulum_DataModule(LightningDataModule):
 		                               # TimeDependentLinearForceField(self.hparams)
 		                               )
 		
-		t = (torch.linspace(start=0, end=self.hparams.data_timesteps, steps=self.hparams.data_timesteps, ) * self.hparams.data_dt)
+		t = (torch.linspace(start=0,
+		                    end=self.hparams.data_timesteps,
+		                    steps=self.hparams.data_timesteps, ) * self.hparams.data_dt)
 		
 		# diffeq = TimeDependentNeuralODE(vector_field=diffeqs, sensitivity='adjoint', solver=self.hparams.data_odeint)
 		diffeq = NeuralODE(vector_field=self.vectorfield, sensitivity="adjoint", solver=self.hparams.data_odeint, )
@@ -756,7 +795,10 @@ class DoublePendulum_DataModule(LightningDataModule):
 				              density=True,
 				              cmap=plt.get_cmap("OrRd"),
 				              range=histogram_range, )
-				axs[0].quiver(x[:, 0].cpu().numpy(), x[:, 2].cpu().numpy(), vf[:, 0].cpu().numpy(), vf[:, 2].cpu().numpy(), )
+				axs[0].quiver(x[:, 0].cpu().numpy(),
+				              x[:, 2].cpu().numpy(),
+				              vf[:, 0].cpu().numpy(),
+				              vf[:, 2].cpu().numpy(), )
 				axs[0].axvline(math.pi)
 				axs[0].axvline(0.5 * math.pi)
 				axs[0].axvline(1.5 * math.pi)
@@ -768,11 +810,15 @@ class DoublePendulum_DataModule(LightningDataModule):
 				              density=True,
 				              cmap=plt.get_cmap("OrRd"),
 				              range=histogram_range, )
-				axs[1].quiver(x[:, 1].cpu().numpy(), x[:, 3].cpu().numpy(), vf[:, 1].cpu().numpy(), vf[:, 3].cpu().numpy(), )
+				axs[1].quiver(x[:, 1].cpu().numpy(),
+				              x[:, 3].cpu().numpy(),
+				              vf[:, 1].cpu().numpy(),
+				              vf[:, 3].cpu().numpy(), )
 				axs[1].axvline(math.pi)
 				axs[1].set_xlabel(r"$\theta_2$")
 				axs[1].set_ylabel(r"$d\theta_2$")
-				fig.suptitle(f"{title} DataModule: \n" + str(diffeq) if title is not None else f"DataModule: \n" + str(diffeq))
+				fig.suptitle(f"{title} DataModule: \n" + str(diffeq) if title is not None else f"DataModule: \n" + str(
+				 diffeq))
 				plt.tight_layout()
 				plt.show()
 	
@@ -916,8 +962,18 @@ class DoublePendulum_DataModule(LightningDataModule):
 					imax = imin + s + 1
 					# The fading looks better if we square the fractional length along the trail.
 					alpha = (j / ns) ** 2
-					axs[0].plot(target_x2[imin:imax], target_y2[imin:imax], c="r", solid_capstyle="butt", lw=2, alpha=alpha, )
-					axs[1].plot(pred_x2[imin:imax], pred_y2[imin:imax], c="r", solid_capstyle="butt", lw=2, alpha=alpha, )
+					axs[0].plot(target_x2[imin:imax],
+					            target_y2[imin:imax],
+					            c="r",
+					            solid_capstyle="butt",
+					            lw=2,
+					            alpha=alpha, )
+					axs[1].plot(pred_x2[imin:imax],
+					            pred_y2[imin:imax],
+					            c="r",
+					            solid_capstyle="butt",
+					            lw=2,
+					            alpha=alpha, )
 				
 				# Centre the image on the fixed anchor point, and ensure the axes are equal
 				axs[0].set_xlim(-L1 - L2 - r, L1 + L2 + r)
@@ -933,7 +989,11 @@ class DoublePendulum_DataModule(LightningDataModule):
 				fig = plt.figure(figsize=(8.3333, 6.25), dpi=72, )
 				ax = fig.add_subplot(111)
 				
-				ax.plot([0, target_x1[t], target_x2[t]], [0, target_y1[t], target_y2[t]], lw=2, c="k", label="Ground Truth", )
+				ax.plot([0, target_x1[t], target_x2[t]],
+				        [0, target_y1[t], target_y2[t]],
+				        lw=2,
+				        c="k",
+				        label="Ground Truth", )
 				c0 = Circle((0, 0), r / 2, fc="k", zorder=10)
 				c1 = Circle((target_x1[t], target_y1[t]), r, fc="b", ec="b", zorder=10)
 				c2 = Circle((target_x2[t], target_y2[t]), r, fc="r", ec="r", zorder=10)
@@ -966,7 +1026,12 @@ class DoublePendulum_DataModule(LightningDataModule):
 					imax = imin + s + 1
 					# The fading looks better if we square the fractional length along the trail.
 					alpha = (j / ns) ** 2
-					ax.plot(target_x2[imin:imax], target_y2[imin:imax], c="r", solid_capstyle="butt", lw=2, alpha=alpha, )
+					ax.plot(target_x2[imin:imax],
+					        target_y2[imin:imax],
+					        c="r",
+					        solid_capstyle="butt",
+					        lw=2,
+					        alpha=alpha, )
 					ax.plot(pred_x2[imin:imax], pred_y2[imin:imax], c="r", solid_capstyle="butt", lw=2, alpha=alpha, )
 				
 				# Centre the image on the fixed anchor point, and ensure the axes are equal
@@ -1049,7 +1114,9 @@ class ThreeBodyProblem_DataModule(LightningDataModule):
 		
 		assert traj.dim() == 3
 		q, p = torch.chunk(traj, chunks=2, dim=-1)
-		r = torch.chunk(q[0], chunks=self.num_bodies, dim=-1)  # whatever q is, chunk it into the number of bodies that we have
+		r = torch.chunk(q[0],
+		                chunks=self.num_bodies,
+		                dim=-1)  # whatever q is, chunk it into the number of bodies that we have
 		r = [r_.numpy() for r_ in r]
 		
 		assert len(r) == self.hparams.nbody_num_bodies
@@ -1085,7 +1152,9 @@ class ThreeBodyProblem_DataModule(LightningDataModule):
 			figs += [image]
 		
 		assert len(figs) > 10, f"{len(figs)=}"
-		imageio.mimsave("./ThreeBodyProblemExample.gif", figs, fps=10)  # exit('@ThreeBodyProblem_DataModule.example_trajectory()')
+		imageio.mimsave("./ThreeBodyProblemExample.gif",
+		                figs,
+		                fps=10)  # exit('@ThreeBodyProblem_DataModule.example_trajectory()')
 	
 	def prepare_data(self) -> None:
 		
@@ -1105,7 +1174,9 @@ class ThreeBodyProblem_DataModule(LightningDataModule):
 		diffeqs = VectorField(ThreeBodyProblemDiffEq(hparams=self.hparams),  # ThreeBodyProblem_ContractingForceField(),
 		                      # ThreeBodyProblem_SidewaysForceField()
 		                      )
-		t = (torch.linspace(start=0, end=self.hparams.data_timesteps, steps=self.hparams.data_timesteps, ) * self.hparams.data_dt)
+		t = (torch.linspace(start=0,
+		                    end=self.hparams.data_timesteps,
+		                    steps=self.hparams.data_timesteps, ) * self.hparams.data_dt)
 		
 		diffeq = NeuralODE(diffeqs, sensitivity="adjoint", solver=self.hparams.odeint)
 		
@@ -1116,7 +1187,8 @@ class ThreeBodyProblem_DataModule(LightningDataModule):
 		self.rawdata = traj
 		
 		assert (self.time.shape == self.rawdata.shape[:2]), f"{self.time.shape=} vs {self.rawdata.shape}"
-		assert self.rawdata.shape == (num_trajs, self.hparams.data_timesteps, self.hparams.nbody_spatial_dims * self.hparams.nbody_num_bodies * 2,)
+		assert self.rawdata.shape == (
+		 num_trajs, self.hparams.data_timesteps, self.hparams.nbody_spatial_dims * self.hparams.nbody_num_bodies * 2,)
 	
 	def setup(self, stage: Optional[str] = None) -> None:
 		
@@ -1303,18 +1375,17 @@ class NdHamiltonian_DataModule(LightningDataModule):
 		
 		"""Create potential for Hamiltonian"""
 		self.potential = GMM(hparams)
-		self.known_vectorfield = NdHamiltonianDiffEq(hparams, potential=self.potential)
-		self.ndhamiltoniandiffeq = self.known_vectorfield
-		self.vectorfield = VectorField(self.known_vectorfield,
-		                               NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq(hparams),
-		                               NdHamiltonianDiffEq_OriginDiffEq(hparams))
+		self.analytical_diffeq = NdHamiltonianDiffEq(hparams=hparams, potential=self.potential)
+		self.ndhamiltoniandiffeq = self.analytical_diffeq
+		self.diffeq = DiffEq(self.analytical_diffeq,
+		                     NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq(hparams),
+		                     NdHamiltonianDiffEq_OriginDiffEq(hparams))
 		
 		print(f"\nDiffSim Generating Data:")
-		print(self.vectorfield)
+		print(self.diffeq)
 		print()
 		
-		self.time_dependent = True if self.vectorfield.time_dependent else False
-		
+		self.time_dependent = self.diffeq.time_dependent
 		self.data_shape = (2 * self.hparams.nd,)
 		self.in_features = math.prod(self.data_shape)
 		self.out_features = self.in_features
@@ -1336,7 +1407,7 @@ class NdHamiltonian_DataModule(LightningDataModule):
 			for name, module in self.vectorfield.named_modules():
 				if isinstance(module, DiffEq) and module.time_dependent:
 					module.t0 = torch.zeros(x.shape[0], 1)
-			
+		
 		data_vf = self.vectorfield(x=x, t=t)
 		
 		if model_vectorfield.time_dependent:
@@ -1353,12 +1424,31 @@ class NdHamiltonian_DataModule(LightningDataModule):
 		
 		'''Takes arbitrary vector fields which work with the provided datamodule example data and trajs and time and plots them'''
 		
-		if vectorfield == None:
-			vectorfield = self.vectorfield
+		def visualize_diffeq(diffeq, x, t, ax):
+			if self.hparams.nd != 2:
+				print(f"{self.hparams.nd=}!=2 so viz doesn't make sense");
+				return
+			if ax is None:
+				fig, ax = plt.subplots(1, 1)
+			q, _ = x.chunk(chunks=2, dim=-1)
 			
-		# if hasattr(self, 'rawdata'):
-		# 	trajs = self.rawdata
-		# 	t = self.time
+			if x.dim() > 2:
+				x = x.flatten(0, -2)
+			
+			if type(diffeq) == NdHamiltonianDiffEq:
+				mesh_shape = q.shape[:2]  # 2D
+				assert q.dim() == 3 and q.shape[0] == q.shape[1] and q.shape[-1] == self.hparams.nd
+				
+				probs = diffeq.potential.prob(q.flatten(0, 1))
+				plotting_probs = probs.reshape(*mesh_shape)
+				
+				ax.contourf(q[:, :, 0], q[:, :, 1], plotting_probs, levels=25)
+			
+			time_diff = diffeq(x=x, t=t).detach().numpy()
+			x = x.detach().numpy()
+			ax.quiver(x[:, 0], x[:, 1], time_diff[:, 2], time_diff[:, 3])
+		
+		vectorfield = self.diffeq if vectorfield is None else vectorfield
 		
 		if self.hparams.nd == 2:
 			path_to_save_viz = "."
@@ -1396,12 +1486,11 @@ class NdHamiltonian_DataModule(LightningDataModule):
 						continue  # skipping if it's not every_nth_plot
 					fig, axs = plt.subplots(2, 2)
 					fig.suptitle(f"T: {t_:.1f}/{t[-1]}")
-					
 					axs = axs.flatten()
-					for i, diffeq in enumerate(vectorfield.diffeqs):
-						diffeq.visualize(x=x, t=t_, ax=axs[i])
 					
-					vectorfield.visualize(x=x, t=t_, ax=axs[-1])
+					visualize_diffeq(diffeq=vectorfield, x=x, t=t_, ax=axs[-1])
+					for i, diffeq in enumerate(vectorfield.diffeqs):
+						visualize_diffeq(diffeq=diffeq, x=x, t=t_, ax=axs[i])
 					
 					if trajs is not None:
 						assert trajs.shape[1] == t.numel(), f"{trajs.shape=} {t.shape=}"
@@ -1420,16 +1509,25 @@ class NdHamiltonian_DataModule(LightningDataModule):
 				
 				if not os.path.exists(phd_path / "DiffSim/experiments/media/NdHamiltonian"):
 					os.makedirs(phd_path / "DiffSim/experiments/media/NdHamiltonian")
-				imageio.mimsave(f"./media/NdHamiltonian/NdHamiltonianTimeDependentNoiseField_{path_suffix}.gif", figs, fps=10, )
+				imageio.mimsave(f"./media/NdHamiltonian/NdHamiltonianTimeDependentNoiseField_{path_suffix}.gif",
+				                figs,
+				                fps=10, )
 				# wandb.log({"example": wandb.Video(np.moveaxis(np.stack(figs, axis=0), -1,1), fps=4, format="gif")})
-				wandb.log({path_suffix: wandb.Video(f"./media/NdHamiltonian/NdHamiltonianTimeDependentNoiseField_{path_suffix}.gif")})
-				
+				wandb.log({
+				 path_suffix: wandb.Video(f"./media/NdHamiltonian/NdHamiltonianTimeDependentNoiseField_{path_suffix}.gif")})
+	
 	
 	@staticmethod
-	def datamodule_args(parent_parser, timesteps=2000, nd=2, num_gaussians=4, num_trajs=7, train_traj_repetition=100):
+	def datamodule_args(parent_parser,
+	                    data_dt=0.01,
+	                    timesteps=2000,
+	                    nd=2,
+	                    num_gaussians=4,
+	                    num_trajs=7,
+	                    train_traj_repetition=100):
 		parser = parent_parser.add_argument_group("ThreeBody_DataModule")
 		
-		parser.add_argument("--data_dt", type=float, default=0.01)
+		parser.add_argument("--data_dt", type=float, default=data_dt)
 		parser.add_argument("--data_timesteps", type=int, default=timesteps)
 		parser.add_argument("--train_traj_repetition", type=int, default=train_traj_repetition)
 		parser.add_argument("--num_trajs", type=int, default=num_trajs)
@@ -1461,8 +1559,10 @@ class NdHamiltonian_DataModule(LightningDataModule):
 		x0 = torch.cat([q0, p0], dim=-1)
 		hamiltonian_energy = self.potential(q0) + p0.pow(2).sum(-1) / 2
 		
-		t = torch.linspace(start=0, end=self.hparams.data_timesteps, steps=self.hparams.data_timesteps) * self.hparams.data_dt
-		diffeq = TimeOffsetNeuralODE(vector_field=self.vectorfield, sensitivity="adjoint", solver="rk4")
+		t = torch.linspace(start=0,
+		                   end=self.hparams.data_timesteps,
+		                   steps=self.hparams.data_timesteps) * self.hparams.data_dt
+		diffeq = NeuralODE(vector_field=self.diffeq, sensitivity="adjoint", solver="rk4")
 		traj = diffeq.trajectory(x=x0.requires_grad_(), t_span=t).swapdims(0, 1).detach()
 		
 		assert traj.dim() == 3
@@ -1491,8 +1591,10 @@ class NdHamiltonian_DataModule(LightningDataModule):
 		
 		# diffeqs = VectorField(self.ndhamiltoniandiffeq)
 		# diffeqs = self.vectorfield
-		t = (torch.linspace(start=0, end=self.hparams.data_timesteps, steps=self.hparams.data_timesteps, ) * self.hparams.data_dt)
-		diffeq = TimeOffsetNeuralODE(vector_field=self.vectorfield, sensitivity="adjoint", solver="rk4")
+		t = (torch.linspace(start=0,
+		                    end=self.hparams.data_timesteps,
+		                    steps=self.hparams.data_timesteps, ) * self.hparams.data_dt)
+		diffeq = NeuralODE(vector_field=self.diffeq, sensitivity="adjoint", solver="rk4")
 		traj = diffeq.trajectory(x=x0, t_span=t).swapdims(0, 1).detach()
 		
 		self.time = t.unsqueeze(0).repeat((self.hparams.num_trajs, 1))
@@ -1615,7 +1717,8 @@ def load_dm_data(hparams):
 	hparams.__dict__.update({"in_features": math.prod(dm.data_shape)})
 	hparams.__dict__.update({"out_features": math.prod(dm.data_shape)})
 	hparams.__dict__.update({"latent_sim_dim": dm.latent_sim_dim}) if hasattr(dm, "latent_sim_dim") else None
-	hparams.__dict__.update({"latent_augment_dim": dm.latent_augment_dim}) if hasattr(dm, "latent_augment_dim") else None
+	hparams.__dict__.update({"latent_augment_dim": dm.latent_augment_dim}) if hasattr(dm,
+	                                                                                  "latent_augment_dim") else None
 	
 	return dm
 

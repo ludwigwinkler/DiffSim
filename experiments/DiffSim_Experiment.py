@@ -27,7 +27,8 @@ for _ in range(len(cwd.parts)):
 sys.path.append(phd_path)
 
 from DiffSim.src.DiffSim_CallBacks import CustomTQDMProgressBar
-from DiffSim.src.DiffSim_DataModules import load_dm_data, DoublePendulum_DataModule, ThreeBodyProblem_DataModule, NdHamiltonian_DataModule
+from DiffSim.src.DiffSim_DataModules import load_dm_data, DoublePendulum_DataModule, ThreeBodyProblem_DataModule, \
+	NdHamiltonian_DataModule
 from DiffSim.src.DiffSim_HyperparameterParser import process_hparams
 from DiffSim.src.DiffSim_Models import LatentODE, DoublePendulumModel, ThreeBodyModel, NdHamiltonianModel
 from DiffSim.src.DiffSim_HyperparameterParser import str2bool
@@ -115,11 +116,20 @@ class PretrainModule(LightningModule):
 	
 	def configure_optimizers(self):
 		
-		optim = torch.optim.Adam(self.parameters(), lr=1e-3 if self.hparams.pretrain_lr < 0 else self.hparams.lr,  # betas=[0.9, 0.99],
+		optim = torch.optim.Adam(self.parameters(),
+		                         lr=1e-3 if self.hparams.pretrain_lr < 0 else self.hparams.lr,
+		                         # betas=[0.9, 0.99],
 		                         weight_decay=1e-7)
 		
 		scheduler = {
-		 "scheduler"        : ReduceLROnPlateau(optim, mode="min", factor=0.1, threshold=1e-3, cooldown=1, patience=2, min_lr=1e-6, verbose=True, ),
+		 "scheduler"        : ReduceLROnPlateau(optim,
+		                                        mode="min",
+		                                        factor=0.1,
+		                                        threshold=1e-3,
+		                                        cooldown=1,
+		                                        patience=2,
+		                                        min_lr=1e-6,
+		                                        verbose=True, ),
 		 "monitor"          : "Val/Epochloss",
 		 "interval"         : "epoch",
 		 "reduce_on_plateau": True,
@@ -133,7 +143,7 @@ class PretrainModule(LightningModule):
 		hparams_ = hparams if type(hparams) == dict else hparams.__dict__
 		pretrainer_args = {
 		 'callbacks'        : [EarlyStopping(monitor='Val/Epochloss', patience=5, mode='min'),
-CustomTQDMProgressBar(refresh_rate=10, prefix='Pretrain')],
+		                       CustomTQDMProgressBar(refresh_rate=10, prefix='Pretrain')],
 		 'log_every_n_steps': 10,
 		 'max_epochs'       : self.hparams.pretrain_max_epochs}
 		
@@ -144,7 +154,7 @@ CustomTQDMProgressBar(refresh_rate=10, prefix='Pretrain')],
 
 class TrainModule(LightningModule):
 	
-	def __init__(self, known_vectorfield, **kwargs):
+	def __init__(self, known_diffeq, **kwargs):
 		super().__init__()
 		
 		self.save_hyperparameters(ignore=['known_vectorfield'])
@@ -156,7 +166,7 @@ class TrainModule(LightningModule):
 		elif self.hparams.model == 'threebodyproblem':
 			self.model = ThreeBodyModel(self.hparams)
 		elif self.hparams.model == 'ndhamiltonian':
-			self.model = NdHamiltonianModel(self.hparams, known_vectorfield)
+			self.model = NdHamiltonianModel(self.hparams, known_diffeq)
 		else:
 			exit(f'Wrong model: {self.hparams.model}')
 		
@@ -190,7 +200,9 @@ class TrainModule(LightningModule):
 		parser.add_argument('--criterion', type=str, choices=['MSE', 'MAE', 'AbsE'], default='MAE')
 		parser.add_argument('--max_epochs', type=int, default=max_epochs)
 		parser.add_argument('--lr', type=float, default=lr)
-		parser.add_argument('--num_workers', type=int, default=4 * torch.cuda.device_count() if torch.cuda.is_available() else 0)
+		parser.add_argument('--num_workers',
+		                    type=int,
+		                    default=4 * torch.cuda.device_count() if torch.cuda.is_available() else 0)
 		parser.add_argument('--early_stopping_patience', default=5)
 		parser.add_argument("--batch_size", type=int, default=128)
 		parser.add_argument('--input_length', type=int, default=1)
@@ -203,10 +215,10 @@ class TrainModule(LightningModule):
 	
 	def on_fit_start(self):
 		
-		# self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.vectorfield, path_suffix='Model Untrained')
-		# self.trainer.datamodule.example_trajectory()
+		self.trainer.datamodule.example_trajectory()
+		self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.diffeq, path_suffix='Model Untrained')
 		
-		assert torch.allclose(self.trainer.datamodule.potential.loc, self.model.vectorfield.diffeqs[0].potential.loc)
+		# assert torch.allclose(self.trainer.datamodule.potential.loc, self.model.vectorfield.diffeqs[0].potential.loc)
 		
 		if self.hparams.pretraining:
 			pretrain_module = PretrainModule(self.hparams, model=model.model)
@@ -243,7 +255,8 @@ class TrainModule(LightningModule):
 			# self.log_dict({'Train/T': batch['T'], **d}, prog_bar=True)
 			self.log_dict({'Train/T': batch['T']}, prog_bar=True)
 			# return {'loss': loss, self.hparams.criterion: loss.detach(), 'T': batch['T']}
-			scalar_params = {name: scalar.detach().numpy().item() for name, scalar in self.named_parameters() if scalar.numel() == 1}
+			scalar_params = {name: scalar.detach().numpy().item() for name, scalar in self.named_parameters() if
+			                 scalar.numel() == 1}
 			self.log_dict(scalar_params, prog_bar=False, on_step=True)
 			return {'loss': loss, 'T': batch['T']}
 	
@@ -272,9 +285,9 @@ class TrainModule(LightningModule):
 		
 		elif self.hparams.model in ['doublependulum', 'threebodyproblem', 'ndhamiltonian']:
 			pred = self.model(batch)
-			vf_diff = self.trainer.datamodule.compare_vectorfield(self.model.vectorfield)
+			# vf_diff = self.trainer.datamodule.compare_vectorfield(self.model.vectorfield)
 			loss, extra_loss = self.model.criterion(pred, batch)
-			return {self.hparams.criterion: loss, 'Val/T': batch['T'], 'Val/VFMSE': vf_diff}
+			return {self.hparams.criterion: loss, 'Val/T': batch['T']}
 	
 	def validation_epoch_end(self, outputs):
 		keys = outputs[0].keys()
@@ -295,7 +308,13 @@ class TrainModule(LightningModule):
 		# for name, param in self.model.named_parameters():
 		# 	print(f"{name}: {param}")
 		schedulers = {
-		 'scheduler'        : ReduceLROnPlateau(optim, mode='min', factor=0.5, threshold=1e-3, patience=3, min_lr=1e-5, verbose=True),
+		 'scheduler'        : ReduceLROnPlateau(optim,
+		                                        mode='min',
+		                                        factor=0.5,
+		                                        threshold=1e-3,
+		                                        patience=3,
+		                                        min_lr=1e-5,
+		                                        verbose=True),
 		 'monitor'          : 'Val/Epoch' + self.hparams.criterion,
 		 'interval'         : 'epoch',
 		 'reduce_on_plateau': True,
@@ -309,11 +328,11 @@ class TrainModule(LightningModule):
 		# for name, param in self.model.named_parameters():
 		# 	print(f"{name}: {param.grad}")
 		pass
-
+	
 	def on_fit_end(self):
 		
 		# self.trainer.datamodule.example_trajectory()
-		self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.vectorfield, path_suffix='Model')
+		self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.diffeq, path_suffix='Model Trained')
 	
 	# self.model.viz_vector_fields(title='Trained \n', training_data=self.trainer.datamodule.train_data)
 	# self.trainer.datamodule.viz_prediction(self.model, title='Trained')
@@ -326,31 +345,46 @@ class TrainModule(LightningModule):
 		                                    patience=self.hparams.early_stopping_patience,
 		                                    min_delta=0.0,
 		                                    verbose=False, )
-		callbacks += [early_stop_callback, CustomTQDMProgressBar(refresh_rate=50 if torch.cuda.is_available() else 10, print_every_epoch=True)]
+		callbacks += [early_stop_callback, CustomTQDMProgressBar(refresh_rate=50 if torch.cuda.is_available() else 10,
+		                                                         print_every_epoch=True)]
 		
 		return callbacks
 
 
 hparams = argparse.ArgumentParser()
-hparams = TrainModule.args(hparams, project='initial_testing', dataset='ndhamiltonian', seed=-1, fast_dev_run=0, logging=['online', 'disabled'][1])
-hparams = TrainModule.trainer_args(hparams, lr=1e-3, max_epochs=10, output_length_train=5)
+hparams = TrainModule.args(hparams,
+                           project='initial_testing',
+                           dataset='ndhamiltonian',
+                           seed=-1,
+                           fast_dev_run=0,
+                           logging=['online', 'disabled'][1])
+hparams = TrainModule.trainer_args(hparams, lr=5e-3, max_epochs=3, output_length_train=10)
 hparams = PretrainModule.pretrainer_args(hparams)
 
 temp_args, _ = hparams.parse_known_args()
 if temp_args.dataset == 'doublependulum':
-	hparams = DoublePendulum_DataModule.datamodule_args(hparams, timesteps=2000, dt=0.1, num_trajs=200, train_traj_repetition=1000)
+	hparams = DoublePendulum_DataModule.datamodule_args(hparams,
+	                                                    timesteps=2000,
+	                                                    dt=0.1,
+	                                                    num_trajs=200,
+	                                                    train_traj_repetition=1000)
 	hparams = DoublePendulumModel.model_args(hparams)
 elif temp_args.dataset == 'threebodyproblem':
 	hparams = ThreeBodyProblem_DataModule.datamodule_args(hparams)
 elif temp_args.dataset == 'ndhamiltonian':
-	hparams = NdHamiltonian_DataModule.datamodule_args(hparams, num_trajs=5000, nd=2, num_gaussians=4, timesteps=500, train_traj_repetition=10)
+	hparams = NdHamiltonian_DataModule.datamodule_args(hparams,
+	                                                   num_trajs=5000,
+	                                                   data_dt=0.01,
+	                                                   nd=2,
+	                                                   num_gaussians=4,
+	                                                   timesteps=500,
+	                                                   train_traj_repetition=10)
 	hparams = NdHamiltonianModel.model_args(hparams)
 
 hparams = process_hparams(hparams, print_hparams=True)
 
-
 dm = load_dm_data(hparams)
-model = TrainModule(**vars(hparams), known_vectorfield=dm.known_vectorfield)
+model = TrainModule(**vars(hparams), known_diffeq=dm.analytical_diffeq)
 
 # Trainer(num_sanity_val_steps=)
 trainer = Trainer.from_argparse_args(hparams,

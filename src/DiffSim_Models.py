@@ -1,14 +1,17 @@
-import sys, warnings
-import numbers, math
+import math
+import numbers
+import sys
+import warnings
 from numbers import Number
-from typing import Union
-import numpy as np
 from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
-import torchdyn.models
+import numpy as np
 from matplotlib import cm
+
+from DiffSim.src.diffeqs.DiffSim_DiffEqs_2D import CircleDiffEq, DoublePendulumDiffEq
+from DiffSim.src.diffeqs.DiffSim_DiffEqs_DoublePendulum import ThreeBodyProblemDiffEq
 
 matplotlib.rcParams["figure.figsize"] = [10, 10]
 
@@ -38,9 +41,9 @@ for _ in range(len(cwd.parts)):
 
 sys.path.append(phd_path)
 
-from DiffSim.src.DiffSim_Utils import str2bool, warning
+from DiffSim.src.DiffSim_Utils import str2bool
 from DiffSim.src.DiffSim_DataModules import DoublePendulum_DataModule
-from DiffSim.src.DiffSim_DiffEqs import *  # importing all the DiffEqs
+from DiffSim.src.diffeqs.DiffSim_DiffEqs import *  # importing all the DiffEqs
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -85,7 +88,7 @@ class FFNN(Module):
 		dx = self.integration_direction * self.net(x)
 		
 		return dx
-	time_dependent = False
+
 
 class PositionalEncoding(torch.nn.Module):
 	"""
@@ -240,15 +243,15 @@ class FFNN_TimeDependent(torch.nn.Module):
 			layers += [linlayer(self.hparams.num_hidden, self.hparams.num_hidden), actfunc(), ]
 		
 		self.nn = Sequential(*layers, Linear(self.hparams.num_hidden, dims, bias=False))
-		
-		# if self.hparams.data_normalization:
-		# 	self.register_buffer('data_mu', torch.zeros((1, dims)))
-		# 	self.register_buffer('data_std', torch.ones((1, dims)))
-		
-		# if self.hparams.target_normalization:
-		# 	self.register_buffer('target_std', torch.ones((1, dims)))
 	
-	def forward(self, t: Union[torch.Tensor, Number] = None, x: torch.Tensor = None):
+	# if self.hparams.data_normalization:
+	# 	self.register_buffer('data_mu', torch.zeros((1, dims)))
+	# 	self.register_buffer('data_std', torch.ones((1, dims)))
+	
+	# if self.hparams.target_normalization:
+	# 	self.register_buffer('target_std', torch.ones((1, dims)))
+	
+	def forward(self, t: Union[torch.Tensor, Number] = None, x: torch.Tensor = None, ):
 		'''
 		We define the vector field as forward in time such that if direction=='forward', the differential is positive, whereas is 'backward' it's negative
 		:param t:
@@ -597,7 +600,7 @@ class DoublePendulumModel(Module):
 		#                      Linear(100, 100),
 		#                      actfunc(),
 		#                      Linear(50, 50), actfunc(),
-		                     # Linear(100, self.hparams.out_features), )
+		# Linear(100, self.hparams.out_features), )
 		
 		self.nn = FFNN_TimeDependent(hparams)
 		
@@ -779,23 +782,18 @@ class ThreeBodyModel(Module):
 
 
 class NdHamiltonianModel(Module):
-	def __init__(self, hparams, analytical_vectorfield=None):
+	def __init__(self, hparams, known_diffeq=None):
 		super().__init__()
 		self.hparams = hparams
 		
 		pytorch_lightning.utilities.seed.reset_seed()
 		
-		self.vectorfield = VectorField(analytical_vectorfield,
-		                               # NdHamiltonianDiffEq_TimeDependent_ML_2DCircularDiffEq(hparams=hparams),
-		                               NNDiffEq(hparams=hparams, nn=FFNN_TimeDependent(hparams=hparams)))
-		                               # NdHamiltonianDiffEq_ML_OriginDiffEq(hparams))
-		# self.vectorfield = VectorField(analytical_vectorfield,
-		                               # NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq(hparams),
-		                               # NdHamiltonianDiffEq_OriginDiffEq(hparams)
-		                               # )
-		# self.vectorfield = analytical_vectorfield
-		# integrator = torchdyn.models.NeuralODE()
-		self.integrator = TimeOffsetNeuralODE(vector_field=self.vectorfield, solver=self.hparams.model_odeint, sensitivity="adjoint", solver_adjoint='dopri5')
+		self.diffeq = DiffEq(known_diffeq, NNDiffEq(hparams=hparams, nn=FFNN_TimeDependent(hparams=hparams)))
+		
+		self.integrator = NeuralODE(vector_field=self.diffeq,
+		                            solver=self.hparams.model_odeint,
+		                            sensitivity="adjoint",
+		                            solver_adjoint='dopri5')
 	
 	@staticmethod
 	def model_args(parent_parser):
