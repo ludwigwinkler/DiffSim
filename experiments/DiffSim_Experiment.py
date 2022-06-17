@@ -272,9 +272,9 @@ class TrainModule(LightningModule):
 		
 		elif self.hparams.model in ['doublependulum', 'threebodyproblem', 'ndhamiltonian']:
 			pred = self.model(batch)
-			vf_diff = self.trainer.datamodule.compare_vectorfield(self.model.vectorfield)
+			# vf_diff = self.trainer.datamodule.compare_vectorfield(self.model.vectorfield)
 			loss, extra_loss = self.model.criterion(pred, batch)
-			return {self.hparams.criterion: loss, 'Val/T': batch['T'], 'Val/VFMSE': vf_diff}
+			return {self.hparams.criterion: loss, 'Val/T': batch['T']}
 	
 	def validation_epoch_end(self, outputs):
 		keys = outputs[0].keys()

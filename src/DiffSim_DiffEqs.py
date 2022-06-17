@@ -564,7 +564,10 @@ class NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq(DiffEq):
 		y_coord = x[:, 1]
 		t_ = torch.atan2(y_coord, x_coord).unsqueeze(1)
 		# assert t_.shape == t.shape, f"{t_.shape=} vs {t.shape=}"
-		dx = torch.sin(t_) * t.cos()
+		try:
+			dx = torch.sin(t_) * t.cos()
+		except:
+			print(f"{t_.shape=} {t.shape=}")
 		dy = -torch.cos(t_) * t.cos()
 		dp = torch.concat([dx, dy], dim=-1)
 		dx = torch.cat([torch.zeros_like(dp), self.scale * (dp - q)], dim=-1).detach()
