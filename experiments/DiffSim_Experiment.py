@@ -215,8 +215,9 @@ class TrainModule(LightningModule):
 	
 	def on_fit_start(self):
 		
-		self.trainer.datamodule.example_trajectory()
-		self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.diffeq, path_suffix='Model Untrained')
+		# self.trainer.datamodule.example_trajectory()
+		self.trainer.datamodule.viz_vectorfields(vectorfield=self.trainer.datamodule.diffeq, path_suffix='Data')
+		self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.diffeq, path_suffix='Model_Untrained')
 		
 		# assert torch.allclose(self.trainer.datamodule.potential.loc, self.model.vectorfield.diffeqs[0].potential.loc)
 		
@@ -269,6 +270,8 @@ class TrainModule(LightningModule):
 			epoch["Train/" + key] = sum([x[key] for x in outputs]) / len(outputs)
 		
 		self.log_dict(epoch, prog_bar=True)
+		
+		self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.diffeq, path_suffix=f'ModelTrained_Epoch{self.current_epoch}')
 	
 	def on_train_epoch_end(self, unused: Optional = None) -> None:
 		
@@ -332,7 +335,7 @@ class TrainModule(LightningModule):
 	def on_fit_end(self):
 		
 		# self.trainer.datamodule.example_trajectory()
-		self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.diffeq, path_suffix='Model Trained')
+		self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.diffeq, path_suffix='Model_Trained')
 	
 	# self.model.viz_vector_fields(title='Trained \n', training_data=self.trainer.datamodule.train_data)
 	# self.trainer.datamodule.viz_prediction(self.model, title='Trained')
@@ -358,7 +361,7 @@ hparams = TrainModule.args(hparams,
                            seed=-1,
                            fast_dev_run=0,
                            logging=['online', 'disabled'][1])
-hparams = TrainModule.trainer_args(hparams, lr=5e-3, max_epochs=3, output_length_train=10)
+hparams = TrainModule.trainer_args(hparams, lr=1e-3, max_epochs=10, output_length_train=10)
 hparams = PretrainModule.pretrainer_args(hparams)
 
 temp_args, _ = hparams.parse_known_args()
@@ -378,7 +381,7 @@ elif temp_args.dataset == 'ndhamiltonian':
 	                                                   nd=2,
 	                                                   num_gaussians=4,
 	                                                   timesteps=500,
-	                                                   train_traj_repetition=10)
+	                                                   train_traj_repetition=5)
 	hparams = NdHamiltonianModel.model_args(hparams)
 
 hparams = process_hparams(hparams, print_hparams=True)

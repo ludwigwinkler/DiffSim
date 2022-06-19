@@ -144,7 +144,7 @@ class NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq(DiffEq):
 		self.scale = 10.
 	
 	@torch.enable_grad()
-	def forward(self, x=None, t=None):
+	def forward(self, x=None, t=None, t0=0.):
 		'''
 		
 		:param x: Union[ x[X,Y,T,2*nd], x[BS, T, 2*nd], x[BS, 2*nd]]
@@ -156,8 +156,7 @@ class NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq(DiffEq):
 		assert x.shape[-1] == 4, f"Can only work in 2D ..."
 		assert x.shape[-1] == 2 * self.hparams.nd
 		
-		
-		t = t + self.t0
+		t = t + t0
 		
 		q, p = x.chunk(chunks=2, dim=-1)
 		x_coord = x[:, 0]
@@ -379,14 +378,15 @@ class NdHamiltonianDiffEq_TimeDependent_OriginDiffEq(DiffEq):
 	'''
 	
 	def __init__(self, hparams: Dict):
-		super().__init__(hparams)
-		self.scale = 3.
-		self.freq = 3
+		super().__init__()
+		self.hparams = hparams
+		self.scale = 1.
+		self.freq = 1.
 		self.time_scale = 1 / (self.hparams.data_dt * self.hparams.data_timesteps) * 2 * math.pi * self.freq
 	
 	
 	@torch.enable_grad()
-	def forward(self, x=None, t=None):
+	def forward(self, x=None, t=None, t0 = 0.):
 		'''
 		
 		:param x: Union[ x[X,Y,T,2*nd], x[BS, T, 2*nd], x[BS, 2*nd]]
@@ -396,6 +396,7 @@ class NdHamiltonianDiffEq_TimeDependent_OriginDiffEq(DiffEq):
 		'''
 		assert x.shape[-1] == 2 * self.hparams.nd
 		assert type(t)==torch.Tensor
+		t = t + t0
 		t = t * self.time_scale
 		q = torch.chunk(x, chunks=2, dim=-1)[0]
 		
@@ -419,5 +420,5 @@ class NdHamiltonianDiffEq_TimeDependent_OriginDiffEq(DiffEq):
 			fig, ax = plt.subplots(1, 1)
 		
 		grad = self.forward(x, t).detach().numpy()
-		# ax.quiver(x[:, 0], x[:, 1], grad[:, 2], grad[:, 3], scale=self.scale.data.numpy() * 10)
+		# ax.quiver(x[:, 0], x[:, 1], grad[:, 2], grad[:, 3], scale=self.scale.data.numpy() * 0.1 )
 		ax.quiver(x[:, 0], x[:, 1], grad[:, 2], grad[:, 3])

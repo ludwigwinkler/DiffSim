@@ -788,7 +788,8 @@ class NdHamiltonianModel(Module):
 		
 		pytorch_lightning.utilities.seed.reset_seed()
 		
-		self.diffeq = DiffEq(known_diffeq, NNDiffEq(hparams=hparams, nn=FFNN_TimeDependent(hparams=hparams)))
+		self.diffeq = DiffEq(known_diffeq,
+		                     NNDiffEq(hparams=hparams, nn=FFNN_TimeDependent(hparams=hparams)))
 		
 		self.integrator = NeuralODE(vector_field=self.diffeq,
 		                            solver=self.hparams.model_odeint,
@@ -800,8 +801,8 @@ class NdHamiltonianModel(Module):
 		parser = parent_parser.add_argument_group("NdHamiltonianModel")
 		parser.add_argument("--model_odeint", type=str, default="dopri5")
 		parser.add_argument("--model", type=str, default="ndhamiltonian")
-		parser.add_argument("--num_hidden", type=int, default=100)
-		parser.add_argument("--num_layers", type=int, default=3)
+		parser.add_argument("--num_hidden", type=int, default=200)
+		parser.add_argument("--num_layers", type=int, default=5)
 		parser.add_argument("--t_emb", type=int, default=10)
 		parser.add_argument("--pretraining", type=str2bool, default=False)
 		return parent_parser

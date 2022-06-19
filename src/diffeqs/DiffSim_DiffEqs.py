@@ -1,4 +1,5 @@
 from typing import Union, List
+from functools import partial
 
 import matplotlib
 import torch, einops
@@ -50,20 +51,21 @@ class DiffEq(torch.nn.Module):
 		if self.diffeqs is not None:
 			return any([diffeq_.time_dependent for diffeq_ in self.diffeqs])
 	
-	def forward(self, t, x):
+	def forward(self, t, x, t0=0.):
 		time_diff = 0
 		if self.diffeqs is not None:
 			for diffeq in self.diffeqs:
-				time_diff = time_diff + diffeq(t=t, x=x)
+				if diffeq.time_dependent:
+					time_diff = time_diff + diffeq(t=t, x=x, t0=t0)
+				else:
+					time_diff = time_diff + diffeq(t=t, x=x)
 		return time_diff
 	
-	def set_t0(self, t0):
-		if self.diffeqs is not None:
-			for diffeq_ in self.diffeqs:
-				if diffeq_.time_dependent:
-					diffeq_.set_t0(t0)
-		else:
-			self.t0 = t0
+	# def set_t0(self, t0):
+	# 	if self.diffeqs is not None:
+	# 		for diffeq_ in self.diffeqs:
+	# 			if diffeq_.time_dependent:
+	# 				diffeq_.set_t0(t0)
 	
 	def visualize(self, t, x):
 		'''Visualizes the vector field given '''
@@ -82,7 +84,8 @@ class NNDiffEq(DiffEq):
 	def time_dependent(self):
 		return self.nn.time_dependent
 	
-	def forward(self, t, x):
+	def forward(self, t, x, t0=0.):
+		t = t + t0
 		out = self.nn(x=x, t=t)
 		return out
 	
@@ -118,13 +121,10 @@ class NeuralODE(torchdyn.models.NeuralODE):
 		t_span = t_span[0] - t_span[0, 0]
 		assert t_span.dim() == 1 and t_span[0] == 0.
 		
-		for name, module in self.named_modules():
-			module.t0 = t0 if isinstance(module, DiffEq) and module.time_dependent else None
-			
+		old_function = self.vf.vf.forward
+		self.vf.vf.forward = partial(self.vf.vf.forward, t0=t0)
 		traj = super().trajectory(x=x, t_span=t_span)
-		
-		for name, module in self.named_modules():
-			module.t0 = None if isinstance(module, DiffEq) and module.time_dependent else None
+		self.vf.vf.forward = old_function
 		
 		return traj
 

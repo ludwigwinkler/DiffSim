@@ -18,8 +18,7 @@ from DiffSim.src.diffeqs.DiffSim_DiffEqs_2D import LinearForceField, TimeDepende
 	DoublePendulumDiffEq, DoublePendulum_SidewaysForceField
 from DiffSim.src.diffeqs.DiffSim_DiffEqs_DoublePendulum import ThreeBodyProblemDiffEq, \
 	ThreeBodyProblem_ContractingForceField
-from DiffSim.src.diffeqs.DiffSim_DiffEqs_NdHamiltonian import GMM, NdHamiltonianDiffEq, \
-	NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq, NdHamiltonianDiffEq_OriginDiffEq
+from DiffSim.src.diffeqs.DiffSim_DiffEqs_NdHamiltonian import *
 
 fontsize = 20
 params = {
@@ -1378,8 +1377,12 @@ class NdHamiltonian_DataModule(LightningDataModule):
 		self.analytical_diffeq = NdHamiltonianDiffEq(hparams=hparams, potential=self.potential)
 		self.ndhamiltoniandiffeq = self.analytical_diffeq
 		self.diffeq = DiffEq(self.analytical_diffeq,
-		                     NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq(hparams),
-		                     NdHamiltonianDiffEq_OriginDiffEq(hparams))
+		                     # NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq(hparams),
+		                     # NdHamiltonianDiffEq_OriginDiffEq(hparams)
+		                     NdHamiltonianDiffEq_TimeDependent_OriginDiffEq(hparams)
+		                     )
+		
+		# self.analytical_diffeq = self.diffeq
 		
 		print(f"\nDiffSim Generating Data:")
 		print(self.diffeq)
@@ -1444,7 +1447,14 @@ class NdHamiltonian_DataModule(LightningDataModule):
 				
 				ax.contourf(q[:, :, 0], q[:, :, 1], plotting_probs, levels=25)
 			
+			for name, module in diffeq.named_modules():
+				module.t0 = 0. if isinstance(module, DiffEq) and module.time_dependent else None
+			
 			time_diff = diffeq(x=x, t=t).detach().numpy()
+			
+			for name, module in diffeq.named_modules():
+				module.t0 = None if isinstance(module, DiffEq) and module.time_dependent else None
+				
 			x = x.detach().numpy()
 			ax.quiver(x[:, 0], x[:, 1], time_diff[:, 2], time_diff[:, 3])
 		
@@ -1474,6 +1484,7 @@ class NdHamiltonian_DataModule(LightningDataModule):
 						axs[0].scatter(trajs[traj_i, 0, 0], trajs[traj_i, 0, 1], c=colors[traj_i])
 						axs[0].plot(trajs[traj_i, :, 0], trajs[traj_i, :, 1], c=colors[traj_i])
 				
+				plt.savefig(f"./media/NdHamiltonian/NdHamiltonianTimeDependentNoiseField_{path_suffix}.png")
 				plt.show()
 			
 			if vectorfield.time_dependent:
@@ -1481,7 +1492,8 @@ class NdHamiltonian_DataModule(LightningDataModule):
 				
 				figs = []
 				every_nth_plot = [t.shape[0] // num_figs, 2][0]
-				for t_idx, t_ in tqdm(enumerate(t), desc='Plotting'):
+				# for t_idx, t_ in tqdm(enumerate(t), desc=f'Plotting {path_suffix}'):
+				for t_idx, t_ in enumerate(t):
 					if t_idx % every_nth_plot != 0:
 						continue  # skipping if it's not every_nth_plot
 					fig, axs = plt.subplots(2, 2)
