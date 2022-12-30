@@ -16,6 +16,8 @@ We want to cut into that by tracing the execution and training the parameters di
 
 The task is to constrain the networks to a very tight manifold.
 
+We can combine DiffEqs and LSTM's by integrating step wise
+
 ### Temporary
 
 #### Time-Dependent Viz

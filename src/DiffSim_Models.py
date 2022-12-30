@@ -224,7 +224,7 @@ class FFNN_TimeDependent(torch.nn.Module):
 		self.predicting = False
 		
 		"""Activation functions need to be twice differentiable OpperGangnamStyle criterion"""
-		actfunc = [torch.nn.Tanh, torch.nn.Sigmoid, torch.nn.ReLU][2]
+		actfunc = [torch.nn.Tanh, torch.nn.Sigmoid, torch.nn.ReLU, torch.nn.GELU][-2]
 		linlayer = [torch.nn.Linear, SkipLinear][1]
 		dims = math.prod(hparams.data_shape)
 		in_dims = dims
@@ -802,7 +802,7 @@ class NdHamiltonianModel(Module):
 		parser.add_argument("--model_odeint", type=str, default="dopri5")
 		parser.add_argument("--model", type=str, default="ndhamiltonian")
 		parser.add_argument("--num_hidden", type=int, default=200)
-		parser.add_argument("--num_layers", type=int, default=5)
+		parser.add_argument("--num_layers", type=int, default=3)
 		parser.add_argument("--t_emb", type=int, default=10)
 		parser.add_argument("--pretraining", type=str2bool, default=False)
 		return parent_parser

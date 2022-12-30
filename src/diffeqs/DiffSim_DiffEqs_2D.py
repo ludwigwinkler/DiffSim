@@ -6,7 +6,7 @@ import einops
 import torch
 from matplotlib import pyplot as plt
 
-from DiffSim.src import DiffSim_DataModules
+# from DiffSim.src.DiffSim_DataModules import DoublePendulum_DataModule
 from DiffSim.src.diffeqs.DiffSim_DiffEqs import DiffEq, Tensor
 
 
@@ -194,7 +194,7 @@ class DoublePendulum_SidewaysForceField(DiffEq):
 		# assert dx.shape==x.shape
 		return dx
 	
-	def visualize_vector_field(self):
+	def visualize_vector_field(self, x):
 		'''
 
 		:param x: [θ_1, θ_2, dθ_1, dθ_2]
@@ -203,7 +203,7 @@ class DoublePendulum_SidewaysForceField(DiffEq):
 		θ_i ∈ [0, 2 π ]
 		dθ_i ∈ [-1, 1]
 		'''
-		x = DiffSim_DataModules.DoublePendulum_DataModule.vectorfield_viz_input(10, 12)
+		# x = DoublePendulum_DataModule.vectorfield_viz_input(10, 12)
 		vf = self.forward(x, t=None)
 		
 		fig, axs = plt.subplots(1, 2)

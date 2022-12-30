@@ -1,14 +1,21 @@
 import math
 from numbers import Number
-from typing import Dict
+from typing import Dict, Union
 
 import einops
 import torch
+from torch.nn import Parameter
 from matplotlib import pyplot as plt
 from torch.distributions import MultivariateNormal
 
 from DiffSim.src.DiffSim_Utils import warning
 from DiffSim.src.diffeqs.DiffSim_DiffEqs import DiffEq, Tensor
+
+from torch import rand
+from torchtyping import TensorType, patch_typeguard
+from typeguard import typechecked
+
+patch_typeguard()  # use before @typechecked
 
 
 class GMM(torch.nn.Module):
@@ -20,9 +27,16 @@ class GMM(torch.nn.Module):
 		super().__init__()
 		
 		self.hparams = hparams
-		self.loc = torch.clamp((torch.rand(1, self.hparams.num_gaussians, self.hparams.nd) - 0.5) * 2, -1, 1)
-		self.cov = (einops.repeat(torch.eye(self.hparams.nd), "i j -> b n i j", b=1, n=self.hparams.num_gaussians, ) * 0.1)
+		loc = torch.clamp((torch.rand(1, self.hparams.num_gaussians, self.hparams.nd) - 0.5) * 2, -1, 1)
+		cov = (einops.repeat(torch.eye(self.hparams.nd), "i j -> b n i j", b=1, n=self.hparams.num_gaussians, ) * 0.1)
+		self.loc = Parameter(loc, requires_grad=False)
+		self.cov = Parameter(cov, requires_grad=False)
+		# self.register_buffer(name='loc', tensor=loc)
+		# self.register_buffer(name='cov', tensor=cov)
+		
 		self.dist = MultivariateNormal(loc=self.loc, covariance_matrix=self.cov)
+		# self.dist.loc = Parameter(self.dist.loc, requires_grad=False)
+		# self.dist.covariance_matrix = Parameter(self.dist.covariance_matrix, requires_grad=False)
 		
 		"""Testing log_prob and prob computations"""
 		data = torch.randn((23, self.hparams.nd))
@@ -44,8 +58,9 @@ class GMM(torch.nn.Module):
 						= log { sum_c exp { log_prob(x|μ_c, σ_c } } - log {c}
 		"""
 		"""data:[BS, Nd] -> data:[BS, c=1, Nd] -> log_prob(data/c):[BS, c]"""
+		# print(f"{data.device=} {self.dist.loc.device=} {self.dist.covariance_matrix.device=}")
 		log_probs = torch.logsumexp(self.dist.log_prob(data.unsqueeze(-2)),
-		                            dim=-1) - torch.log(torch.scalar_tensor(self.hparams.num_gaussians))  # [BS, Nd] -> [BS, c=1, Nd] -> [BS, c=num_gaussians] -> [BS]
+		                            dim=-1) - torch.log(torch.scalar_tensor(self.hparams.num_gaussians).to(data.device))  # [BS, Nd] -> [BS, c=1, Nd] -> [BS, c=num_gaussians] -> [BS]
 		# log_probs = self.dist.log_prob(data.unsqueeze(-2)).mean(dim=-1)  # [BS, Nd] -> [BS, c=1, Nd] -> [BS, c=num_gaussians] -> [BS]
 		return log_probs
 	
@@ -169,6 +184,75 @@ class NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq(DiffEq):
 		dp = torch.concat([dx, dy], dim=-1)
 		dx = torch.cat([torch.zeros_like(dp), self.scale * (dp - q)], dim=-1).detach()
 		assert dx.shape == x.shape, f"{dx.shape=} vs {x.shape=} vs {t.shape=} {self.t0.shape=}"
+		return dx
+	
+	def visualize(self, x=None, t=None, ax=None, show=False):
+		
+		# assert x.dim()==2, f"NdHamiltonianDiffEq input x.shape={x.shape}"
+		if x.dim() > 2:
+			x = x.flatten(0, -2)
+		if ax is None:
+			fig, ax = plt.subplots(1, 1)
+		
+		grad = self.forward(x, t, t0=False)
+		ax.quiver(x[:, 0], x[:, 1], grad[:, 2], grad[:, 3])
+		
+class NdHamiltonianDiffEq_CircularMoving_Attractor(DiffEq):
+	time_dependent = True
+	'''
+	Point attractor that circles around origin point and the force of which is 1/r^2
+	We normalize the time to t/T ∈[0,1] and multiply it with the frequency with T= dt * time_steps: t/T * π * freq
+	π* t/T ∈[0,π] because torch.sin() takes radians
+	'''
+	
+	def __init__(self, hparams: Dict):
+		super().__init__()
+		self.hparams = hparams
+		self.scale = 1.
+		self.freq = 1.
+	
+	@typechecked
+	def forward(self, x, t: Union[Number, TensorType], t0: Union[Number, TensorType["batch", 1]]=0.):
+	 
+		'''
+		
+		:param x: Union[ x[X,Y,T,2*nd], x[BS, T, 2*nd], x[BS, 2*nd]]
+		:param t: Union[ T, BS ]
+		:param t0: Bool to use t0 except when it's actively turned off
+		
+		We compute position of attractor through the time index t_.
+		
+		
+		'''
+		assert x.shape[-1] == 4, f"Can only work in 2D ..."
+		assert x.shape[-1] == 2 * self.hparams.nd
+		assert x.dim()==2
+		
+		t = t + t0
+		
+		q, p = x.chunk(chunks=2, dim=-1)
+		x_coord = x[:, 0]
+		y_coord = x[:, 1]
+		t_ = torch.atan2(y_coord, x_coord).unsqueeze(1)
+		
+		if type(t)==torch.Tensor and t.dim()==0 and t.numel()==1:
+			t = torch.zeros_like(x_coord).fill_(t) + t0
+		# t = einops.repeat(t, 'b t -> b (i t)', i=q.shape[-1])
+		
+		'''Computing x, y coordinate of attractor'''
+		
+		x_ = torch.sin(t)
+		y_ = -torch.cos(t)
+		pos = torch.stack([x_, y_], dim=-1).squeeze()
+		
+		assert pos.shape==q.shape, f"{pos.shape=} {q.shape=}"
+		
+		dp = (pos - q) / (pos - q).pow(2).sum(dim=-1, keepdim=True).pow(0.5).pow(3)
+		dp = dp.clamp(-10,10)
+	
+		
+		dx = torch.cat([torch.zeros_like(dp), self.scale * dp], dim=-1).detach()
+		assert dx.shape == x.shape, f"{dx.shape=} vs {x.shape=} vs {t.shape=} {t0.shape=}"
 		return dx
 	
 	def visualize(self, x=None, t=None, ax=None, show=False):

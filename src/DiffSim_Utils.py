@@ -1,6 +1,6 @@
 import numbers, argparse, colorama
 from termcolor import colored
-
+import torch
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -22,3 +22,13 @@ def str2bool(v):
     
 def warning(str):
     print(colored(str, color='green', on_color='on_red'))
+
+
+old_repr = torch.Tensor.__repr__
+
+
+def tensor_info(tensor):
+    return repr(tensor.shape)[6:] + ' ' + repr(tensor.dtype)[6:] + '@' + str(tensor.device) + '\n' + old_repr(tensor)
+
+
+torch.Tensor.__repr__ = tensor_info

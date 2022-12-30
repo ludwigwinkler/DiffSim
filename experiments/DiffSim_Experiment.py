@@ -1,4 +1,5 @@
 import argparse
+import shutil
 import sys
 import warnings
 from pathlib import Path
@@ -14,7 +15,6 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 # from torchtyping import TensorType, patch_typeguard
 # from typeguard import typechecked
 # patch_typeguard()
-
 
 file_path = Path(__file__).absolute()
 cwd = file_path.parent
@@ -215,7 +215,10 @@ class TrainModule(LightningModule):
 	
 	def on_fit_start(self):
 		
-		# self.trainer.datamodule.example_trajectory()
+		try:
+			shutil.rmtree(phd_path / "DiffSim/experiments/media/NdHamiltonian")
+		except:
+			pass
 		self.trainer.datamodule.viz_vectorfields(vectorfield=self.trainer.datamodule.diffeq, path_suffix='Data')
 		self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.diffeq, path_suffix='Model_Untrained')
 		
@@ -271,7 +274,9 @@ class TrainModule(LightningModule):
 		
 		self.log_dict(epoch, prog_bar=True)
 		
-		self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.diffeq, path_suffix=f'ModelTrained_Epoch{self.current_epoch}')
+		if not self.current_epoch % 5:
+			self.trainer.datamodule.viz_vectorfields(vectorfield=self.model.diffeq,
+			                                         path_suffix=f'ModelTrained_Epoch{self.current_epoch}')
 	
 	def on_train_epoch_end(self, unused: Optional = None) -> None:
 		
@@ -324,7 +329,7 @@ class TrainModule(LightningModule):
 		 'frequency'        : 1,
 		 'strict'           : False}
 		
-		return [optim], [schedulers]
+		return [optim]  # , [schedulers]
 	
 	def on_before_optimizer_step(self, optimizer, optimizer_idx) -> None:
 		
@@ -348,8 +353,8 @@ class TrainModule(LightningModule):
 		                                    patience=self.hparams.early_stopping_patience,
 		                                    min_delta=0.0,
 		                                    verbose=False, )
-		callbacks += [early_stop_callback, CustomTQDMProgressBar(refresh_rate=50 if torch.cuda.is_available() else 10,
-		                                                         print_every_epoch=True)]
+		callbacks += [
+		 CustomTQDMProgressBar(refresh_rate=50 if torch.cuda.is_available() else 10, print_every_epoch=True)]
 		
 		return callbacks
 
@@ -360,8 +365,8 @@ hparams = TrainModule.args(hparams,
                            dataset='ndhamiltonian',
                            seed=-1,
                            fast_dev_run=0,
-                           logging=['online', 'disabled'][1])
-hparams = TrainModule.trainer_args(hparams, lr=1e-3, max_epochs=10, output_length_train=10)
+                           logging=['disabled', 'online'][0])
+hparams = TrainModule.trainer_args(hparams, lr=1e-4, max_epochs=50, output_length_train=10)
 hparams = PretrainModule.pretrainer_args(hparams)
 
 temp_args, _ = hparams.parse_known_args()
@@ -376,12 +381,12 @@ elif temp_args.dataset == 'threebodyproblem':
 	hparams = ThreeBodyProblem_DataModule.datamodule_args(hparams)
 elif temp_args.dataset == 'ndhamiltonian':
 	hparams = NdHamiltonian_DataModule.datamodule_args(hparams,
-	                                                   num_trajs=5000,
+	                                                   num_trajs=50,
 	                                                   data_dt=0.01,
 	                                                   nd=2,
 	                                                   num_gaussians=4,
-	                                                   timesteps=500,
-	                                                   train_traj_repetition=5)
+	                                                   timesteps=1000,
+	                                                   train_traj_repetition=1000)
 	hparams = NdHamiltonianModel.model_args(hparams)
 
 hparams = process_hparams(hparams, print_hparams=True)
@@ -396,7 +401,9 @@ trainer = Trainer.from_argparse_args(hparams,
                                      num_sanity_val_steps=3,
                                      callbacks=model.callbacks(),
                                      # val_check_interval=1.,
-                                     gpus=1 if torch.cuda.is_available() else None,
+                                     accelerator="gpu" if torch.cuda.is_available() else "cpu",
+                                     # devices=1,
+                                     # gpus=1 if torch.cuda.is_available() else None,
                                      reload_dataloaders_every_n_epochs=True,
                                      # min_epochs=hparams.output_length_val//hparams.iterative_output_length_training_increase,
                                      # log_every_n_steps=10,

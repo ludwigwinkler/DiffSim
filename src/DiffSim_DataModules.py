@@ -1,4 +1,4 @@
-import math
+import os
 import os
 import sys
 import warnings
@@ -6,10 +6,11 @@ from pathlib import Path
 from typing import Optional
 
 import imageio
-import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning
 import wandb
+
+import torch, torchdiffeq
 
 # from torchtyping import TensorType, patch_typeguard
 # from typeguard import typechecked
@@ -53,6 +54,7 @@ sys.path.append(phd_path)
 from DiffSim.src.DiffSim_DataSets import DiffEq_TimeSeries_DataSet
 from DiffSim.src.DiffSim_Utils import str2bool
 from DiffSim.src.diffeqs.DiffSim_DiffEqs import *  # importing all the DiffEqs
+from DiffSim.src.diffeqs.DiffSim_DiffEqs_Kepler import *
 
 
 file_path = os.path.dirname(os.path.abspath(__file__)) + "/MD_DataUtils.py"
@@ -78,6 +80,9 @@ class MinMaxScaler(object):
 		scale = 1.0 / dist
 		tensor.mul_(scale).sub_(tensor.min(dim=1, keepdim=True)[0])
 		return tensor
+
+
+def degrad(x): return x / (180 / np.pi)
 
 
 def np_array(_tensor):
@@ -322,7 +327,7 @@ class ForceField_Circular_GaussianBlob_DataModule(LightningDataModule):
 	@torch.no_grad()
 	def visualize_force_fields(self, diffeqiterator, plot=True):
 		
-		assert type(diffeqiterator) == VectorField
+		assert type(diffeqiterator) == DiffEq
 		x = np.linspace(-15, 15, self.hparams.data_res // 2)
 		y = np.linspace(-15, 15, self.hparams.data_res // 2)
 		X, Y = np.meshgrid(x, y)
@@ -381,7 +386,7 @@ class ForceField_Circular_GaussianBlob_DataModule(LightningDataModule):
 		X, Y = np.meshgrid(x, y)
 		points = Tensor(np.stack((X.flatten(), Y.flatten())).T).float()
 		
-		diffeqs = VectorField(CircleDiffEq(), LinearForceField(), TimeDependentLinearForceField(self.hparams), )
+		diffeqs = DiffEq(CircleDiffEq(), LinearForceField(), TimeDependentLinearForceField(self.hparams), )
 		
 		self.visualize_force_fields(diffeqs)
 		
@@ -620,7 +625,7 @@ class DoublePendulum_DataModule(LightningDataModule):
 		
 		x0 = Tensor([[3 * np.pi / 7, 0, 3 * np.pi / 4, 0]])
 		
-		diffeqs = VectorField(self.doublependulum_diffeq, DoublePendulum_SidewaysForceField())
+		diffeqs = DiffEq(self.doublependulum_diffeq, DoublePendulum_SidewaysForceField())
 		# t = torch.linspace(start=0, end=self.hparams.data_timesteps, steps=self.hparams.data_timesteps) * self.hparams.data_dt
 		t = torch.linspace(start=0, end=100, steps=100) * self.hparams.data_dt
 		
@@ -700,10 +705,10 @@ class DoublePendulum_DataModule(LightningDataModule):
 		p0 = torch.zeros(self.hparams.num_trajs, 2).uniform_(-1, 1)
 		x0 = torch.cat([q0, p0], dim=-1)
 		
-		self.vectorfield = VectorField(DoublePendulumDiffEq(hparams=self.hparams),
-		                               DoublePendulum_SidewaysForceField(),
-		                               # TimeDependentLinearForceField(self.hparams)
-		                               )
+		self.vectorfield = DiffEq(DoublePendulumDiffEq(hparams=self.hparams),
+		                          DoublePendulum_SidewaysForceField(),
+		                          # TimeDependentLinearForceField(self.hparams)
+		                          )
 		
 		t = (torch.linspace(start=0,
 		                    end=self.hparams.data_timesteps,
@@ -1102,7 +1107,7 @@ class ThreeBodyProblem_DataModule(LightningDataModule):
 		
 		x0 = torch.cat([q0, p0], dim=-1)
 		
-		diffeqs = VectorField(ThreeBodyProblemDiffEq(hparams=self.hparams), ThreeBodyProblem_ContractingForceField(), )
+		diffeqs = DiffEq(ThreeBodyProblemDiffEq(hparams=self.hparams), ThreeBodyProblem_ContractingForceField(), )
 		# diffeqs = DiffEqIterator(self.threebodyproblem_diffeq)
 		t = torch.linspace(start=0, end=300, steps=300) * self.hparams.data_dt
 		
@@ -1170,9 +1175,9 @@ class ThreeBodyProblem_DataModule(LightningDataModule):
 		
 		x0 = torch.cat([q0, p0], dim=-1)
 		
-		diffeqs = VectorField(ThreeBodyProblemDiffEq(hparams=self.hparams),  # ThreeBodyProblem_ContractingForceField(),
-		                      # ThreeBodyProblem_SidewaysForceField()
-		                      )
+		diffeqs = DiffEq(ThreeBodyProblemDiffEq(hparams=self.hparams),  # ThreeBodyProblem_ContractingForceField(),
+		                 # ThreeBodyProblem_SidewaysForceField()
+		                 )
 		t = (torch.linspace(start=0,
 		                    end=self.hparams.data_timesteps,
 		                    steps=self.hparams.data_timesteps, ) * self.hparams.data_dt)
@@ -1378,8 +1383,9 @@ class NdHamiltonian_DataModule(LightningDataModule):
 		self.ndhamiltoniandiffeq = self.analytical_diffeq
 		self.diffeq = DiffEq(self.analytical_diffeq,
 		                     # NdHamiltonianDiffEq_TimeDependent_2DCircularDiffEq(hparams),
+		                     NdHamiltonianDiffEq_CircularMoving_Attractor(hparams)
 		                     # NdHamiltonianDiffEq_OriginDiffEq(hparams)
-		                     NdHamiltonianDiffEq_TimeDependent_OriginDiffEq(hparams)
+		                     # NdHamiltonianDiffEq_TimeDependent_OriginDiffEq(hparams)
 		                     )
 		
 		# self.analytical_diffeq = self.diffeq
@@ -1454,11 +1460,14 @@ class NdHamiltonian_DataModule(LightningDataModule):
 			
 			for name, module in diffeq.named_modules():
 				module.t0 = None if isinstance(module, DiffEq) and module.time_dependent else None
-				
+			
 			x = x.detach().numpy()
 			ax.quiver(x[:, 0], x[:, 1], time_diff[:, 2], time_diff[:, 3])
 		
 		vectorfield = self.diffeq if vectorfield is None else vectorfield
+		
+		# device = torch.device('mps', 0)
+		# vectorfield = vectorfield.to(device)
 		
 		if self.hparams.nd == 2:
 			path_to_save_viz = "."
@@ -1469,6 +1478,8 @@ class NdHamiltonian_DataModule(LightningDataModule):
 			elif trajs is not None and t is not None:
 				q, _ = self.vectorfield_viz_input(only_q=True)  # x:[X, Y, 2], t:[T]
 				x, _ = self.vectorfield_viz_input(only_q=False)  # x:[X, Y, 4], t:[T]
+			
+			q, x, t = q.to(device), x.to(device), t.to(device)
 			
 			if not vectorfield.time_dependent:
 				fig, axs = plt.subplots(2, 2)
@@ -1606,7 +1617,7 @@ class NdHamiltonian_DataModule(LightningDataModule):
 		t = (torch.linspace(start=0,
 		                    end=self.hparams.data_timesteps,
 		                    steps=self.hparams.data_timesteps, ) * self.hparams.data_dt)
-		diffeq = NeuralODE(vector_field=self.diffeq, sensitivity="adjoint", solver="rk4")
+		diffeq = NeuralODE(vector_field=self.diffeq, sensitivity="adjoint", solver="dopri5")
 		traj = diffeq.trajectory(x=x0, t_span=t).swapdims(0, 1).detach()
 		
 		self.time = t.unsqueeze(0).repeat((self.hparams.num_trajs, 1))
@@ -1704,6 +1715,228 @@ class NdHamiltonian_DataModule(LightningDataModule):
 		return f"ThreeBodyProblem_DataModule: {self.rawdata.shape}"
 
 
+class Gravity_DataModule(LightningDataModule):
+	param_str = ['a', 'e', 'i', 'Omega', 'omega', 't0']
+	
+	s2 = {param: torch.Tensor([value]) for param, value in
+	      zip(param_str, [0.12495, 0.88441, degrad(134.70), degrad(228.19), degrad(66.25), 0])}
+	s38 = {param: torch.Tensor([value]) for param, value in
+	       zip(param_str, [0.14254, 0.8145, degrad(166.65), degrad(109.45), degrad(27.25), 0])}
+	s29 = {param: torch.Tensor([value]) for param, value in
+	       zip(param_str, [0.3975, 0.9693, degrad(144.37), degrad(7.), degrad(205.79), 0])}
+	s55 = {param: torch.Tensor([value]) for param, value in
+	       zip(param_str, [0.1044, 0.7267, degrad(158.52), degrad(314.94), degrad(322.78), 0])}
+	earth = {param: torch.Tensor([value]) for param, value in
+	         zip(param_str, [1., 0., degrad(158.52), degrad(314.94), degrad(322.78), 0])}
+	color_dict = {'S2': 'red', 'S29': 'blue', 'S55': 'aqua', 'S38': 'black', 'earth': 'orange'}
+	
+	def __init__(self, hparams):
+		super().__init__()
+		
+		"""Add own hparams to already existing hparams and check keys"""
+		# self.hparams = {}
+		self.hparams.update(hparams.__dict__ if type(hparams) != dict else hparams)
+		
+		self.orbits_name = ['S2', 'S38', 'S29', 'S55']
+		self.orbits = [self.s2, self.s38, self.s29, self.s55]
+		self.a = torch.stack([orbit['a'] for orbit in self.orbits])
+		self.e = torch.stack([orbit['e'] for orbit in self.orbits])
+		self.i = torch.stack([orbit['i'] for orbit in self.orbits])
+		self.Omega = torch.stack([orbit['Omega'] for orbit in self.orbits])
+		self.omega = torch.stack([orbit['omega'] for orbit in self.orbits])
+		
+		self.mu = 10
+		
+		self.steps = 200
+		self.T = 3 * torch.pi
+		self.mean_motion = self.T / self.steps
+		self.kepler_diffeq = KeplerDiffEq(a=self.a,
+		                                  e=self.e,
+		                                  i=self.i,
+		                                  omega=self.omega,
+		                                  Omega=self.Omega,
+		                                  mean_motion=self.mean_motion)
+	
+	def kep_to_cart(self, mean_anomaly):
+		
+		mu = 0.09
+		'''
+		mean anomaly is the average speed that we need to do a full period
+		it's basically n = 2π/T
+		'''
+		
+		mean_anomaly = torch.ones_like(self.e).fill_(mean_anomaly)
+		
+		'''Computing the eccentric anomaly with Keplers Equation, can be done only numerically'''
+		E = mean_anomaly.clone()
+		delta_E = mean_anomaly.clone()
+		step = 0
+		delta_Es = []
+		while abs(delta_E).mean() > 1e-8 and step < 1000:
+			delta_E = (E - self.e * torch.sin(E) - mean_anomaly) / (1 - self.e * torch.cos(E))
+			# print(f"\t {delta_E=}")
+			delta_Es += [delta_E]
+			E = E - 0.01 * delta_E
+			step += 1
+		
+		# if 1< mean_anomaly < 1.3:
+		# 	print(f"{delta_Es=}")
+		# 	plt.plot(delta_Es)
+		# 	plt.show()
+		
+		'''Computing the true anomaly'''
+		true_anomaly = 2 * torch.arctan2(torch.sqrt(1 + self.e) * torch.sin(E / 2),
+		                                 torch.sqrt(1 - self.e) * torch.cos(E / 2))
+		
+		'''Computing the heliocentric/bodycentric distance'''
+		r_central = self.a * (1 - self.e * torch.cos(E))
+		scaling = torch.sqrt(mu * self.a) / r_central
+		
+		'''Analytical position from true anomaly, BUT NOT DIFFEQ solution'''
+		x_analytical = r_central * torch.cos(true_anomaly)
+		y_analytical = r_central * torch.sin(true_anomaly)
+		z_analytical = torch.Tensor([0.])
+		
+		'''Using the true position as in solving a differential equation'''
+		x_ = x_analytical
+		y_ = y_analytical
+		z_ = z_analytical
+		'''Velocity is given by Kepler orbit'''
+		dx = - torch.sin(E) * scaling
+		dy = torch.sqrt(1 - self.e ** 2) * torch.cos(E) * scaling
+		dz = 0.
+		
+		# else:
+		#
+		# 	x = a * (torch.cos(E) - e)
+		# 	y = a * (1 - e ** 2) ** .5 * torch.sin(E)
+		# 	z = torch.Tensor([0.])
+		#
+		# 	dx = - torch.sin(E)  # * scaling
+		# 	dy = torch.sqrt(1 - e ** 2) * torch.cos(E)  # * scaling
+		# 	dz = 0
+		
+		'''Doing a bit of projection'''
+		cosw = self.omega.cos()
+		sinw = self.omega.sin()
+		cosW = self.Omega.cos()
+		sinW = self.Omega.sin()
+		cosi = self.i.cos()
+		sini = self.i.sin()
+		
+		r_x = (cosw * cosW - sinw * sinW * cosi) * x_ + (-sinw * cosW - cosw * sinW * cosi) * y_
+		r_y = (cosw * sinW + sinw * cosW * cosi) * x_ + (-sinw * sinW + cosw * cosW * cosi) * y_
+		r_z = (sinw * sini) * x_ + cosw * sini * y_
+		
+		dr_x = (cosw * cosW - sinw * sinW * cosi) * dx + (-sinw * cosW - cosw * sinW * cosi) * dy
+		dr_y = (cosw * sinW + sinw * cosW * cosi) * dx + (-sinw * sinW + cosw * cosW * cosi) * dy
+		dr_z = (sinw * sini) * dx + (cosw * sini) * dy
+		
+		scaling = - self.mean_motion ** 2 * self.a ** 3 / r_central ** 2
+		# unit_vector_scaling = (r_x ** 2 + r_y ** 2) ** 0.5
+		
+		# ddr_x = scaling * r_x / unit_vector_scaling
+		# ddr_y = scaling * r_y / unit_vector_scaling
+		# ddr_z = torch.zeros_like(ddr_y)
+		
+		r = torch.concat([r_x, r_y, r_z], dim=-1)
+		dr = torch.concat([dr_x, dr_y, dr_z], dim=-1)
+		'''Acceleration is given by Kepler orbit by pointing to center'''
+		ddr = scaling * r / r.pow(2).sum(-1, keepdim=True).pow(0.5)
+		
+		return r, dr, ddr
+	
+	def kepler_to_orbit(self):
+		t = torch.linspace(0, self.T, self.steps)
+		r = []
+		dr = []
+		ddr = []
+		for step, t_ in tqdm(enumerate(t), total=self.steps):
+			r_t, dr_t, ddr_t = self.kep_to_cart(mean_anomaly=t_)
+			r += [r_t]
+			dr += [dr_t]
+			ddr += [ddr_t]
+		
+		r = torch.stack(r, dim=0)
+		dr = torch.stack(dr, dim=0)
+		ddr = torch.stack(ddr, dim=0)
+		
+		return r, dr, ddr
+	
+	
+	def visualize_orbits(self):
+		
+		r, dr, ddr = self.kepler_to_orbit()
+		
+		steps = r.shape[0]
+		fig2d = plt.figure()
+		ax2d = fig2d.add_subplot(1, 1, 1)
+		for i, name in enumerate(self.orbits_name):
+			ax2d.scatter(r[0, i, 0], r[0, i, 1], color=self.color_dict[name])  # perihelion
+			ax2d.plot(r[:, i, 0], r[:, i, 1], color=self.color_dict[name])  # full trajectory
+		plt.scatter(0, 0, s=10, marker='*')
+		plt.grid()
+		ax2d.set_xlabel(f"X")
+		ax2d.set_ylabel(f"Y")
+		ax2d.set_title('Kepler Orbits')
+		plt.show()
+		
+		figs = []
+		fps = 5
+		for step in tqdm(range(steps), desc='Generating GIF'):
+			if step % 10 == 0:
+				fig2d = plt.figure(figsize=(5, 10))
+				ax2d = fig2d.add_subplot(1, 1, 1)
+				for i, name in enumerate(self.orbits_name):
+					# data: [timestep, orbit, cartesian_dimension]
+					ax2d.scatter(r[0, i, 0], r[0, i, 1], color=self.color_dict[name])  # perihelion
+					ax2d.plot(r[:step, i, 0], r[:step, i, 1], color=self.color_dict[name])  # full trajectory
+					ax2d.quiver(r[step, i, 0],
+					            r[step, i, 1],
+					            dr[step, i, 0],
+					            dr[step, i, 1],
+					            color=self.color_dict[name],
+					            angles='xy')
+					ax2d.quiver(r[step, i, 0],
+					            r[step, i, 1],
+					            ddr[step, i, 0],
+					            ddr[step, i, 1],
+					            color=self.color_dict[name],
+					            angles='xy')  # ax2d.plot([0, r[-1, i, 0]], [0, r[-1, i, 1]], ls='--', color=color_dict[name])
+				ax2d.grid()
+				ax2d.set_title(f"{step / steps * 100:.2f} \% of T=2$\pi$")
+				fig2d.canvas.draw()
+				plt.close()
+				image = np.frombuffer(fig2d.canvas.tostring_rgb(), dtype="uint8")
+				image = image.reshape(fig2d.canvas.get_width_height()[::-1] + (3,))
+				figs += [image]
+		path = phd_path / "DiffSim/experiments/media/kepler"
+		if not os.path.exists(path):
+			os.makedirs(path)
+		imageio.mimsave(path / "kepler.gif", figs, fps=fps)
+	
+	def visualize_keplerdiffeq(self):
+		t = torch.linspace(0, self.T, self.steps)
+		r_0, dr_0, ddr_0 = self.kep_to_cart(mean_anomaly=t[0])
+		y0 = torch.concat([r_0, dr_0], dim=-1)
+		with torch.no_grad():
+			traj = torchdiffeq.odeint_adjoint(self.kepler_diffeq, y0=y0, t=t, method='dopri5')
+		print(traj.shape)
+		traj = traj.squeeze()
+		
+		fig2d = plt.figure()
+	
+		ax2d = fig2d.add_subplot(1, 1, 1)
+		for i, name in enumerate(self.orbits_name):
+			ax2d.scatter(traj[0, i, 0], traj[0, i, 1], color=self.color_dict[name])  # perihelion
+			ax2d.plot(traj[:, i, 0], traj[:, i, 1], color=self.color_dict[name])  # full trajectory
+		plt.scatter(0, 0, s=10, marker='*')
+		plt.grid()
+		ax2d.set_xlabel(f"X")
+		ax2d.set_ylabel(f"Y")
+		plt.show()
+
+
 def load_dm_data(hparams):
 	data_str = hparams.dataset
 	if data_str in ["gaussianblob"]:
@@ -1736,9 +1969,11 @@ def load_dm_data(hparams):
 
 
 if __name__ == "__main__":
-	from DiffSim import HParamParser
+	# from DiffSim import HParamParser
 	
-	hparams = HParamParser(dataset="forcefieldgaussianblob", data_timesteps=50, data_dt=0.01, data_radius=5)
-	dm = load_dm_data(hparams)
+	# hparams = HParamParser(dataset="forcefieldgaussianblob", data_timesteps=50, data_dt=0.01, data_radius=5)
+	# dm = load_dm_data(hparams)
 	
-	pass
+	gravity = Gravity_DataModule({})
+	# gravity.visualize_orbits()
+	gravity.visualize_keplerdiffeq()
